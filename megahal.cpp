@@ -121,11 +121,13 @@
 #else
 #include <sys/types.h>
 #endif
+#include "calculator_test.h"
 #include "megahal.h"
 #if defined(DEBUG)
 //#include "debug.h"
 #endif
 
+#define MATH_TYPE real
 #define P_THINK 40
 #define D_KEY 100000
 #define V_KEY 50000
@@ -170,29 +172,31 @@
 #define isspace(x) IsSpace(_AmigaLocale,x)
 #endif
 
+static int width=75;
+static int order=5;
 
+static bool typing_delay=FALSE;
+static bool noprompt=FALSE;
+static bool speech=FALSE;
+static bool quiet=FALSE;
+static bool nowrap=FALSE;
+static bool nobanner=FALSE;
+
+static char *errorfilename = "megahal.log";
+static char *statusfilename = "megahal.txt";
+typedef enum { UNKNOWN, QUIT, EXIT, SAVE, DELAY, HELP, SPEECH, VOICELIST, VOICE, BRAIN, QUIET} COMMAND_WORDS;
+
+#if 0
 typedef struct {
     BYTE1 length;
     char *word;
 } STRING;
 
-#if 0
 typedef struct {
     BYTE4 size;
     STRING *entry;
     BYTE2 *index;
 } DICTIONARY;
-#endif
-
-class DICTIONARY
-{
-public:
-	static DICTIONARY *allocate ();
-
-    BYTE4 size;
-    STRING *entry;
-    BYTE2 *index;
-};
 
 typedef struct {
     BYTE2 size;
@@ -208,20 +212,140 @@ typedef struct NODE {
     struct NODE **tree;
 } TREE;
 
-#if 0
 typedef struct {
     BYTE1 order;
     TREE *forward;
     TREE *backward;
     TREE **context;
     DICTIONARY *dictionary;
-} 
+} MODEL;
+
+typedef struct {
+    STRING word;
+    char *helpstring;
+    COMMAND_WORDS command;
+} COMMAND;
 #endif
+
+class STRING 
+{
+public:
+	static void free_word(STRING);
+	static void save_word(FILE *, STRING);
+	static int wordcmp(STRING, STRING);
+
+public:
+    BYTE1 length;
+    char *word;
+};
+
+class DICTIONARY
+{
+public:
+	static DICTIONARY *allocate ();
+	static bool dissimilar(DICTIONARY *, DICTIONARY *);
+	static COMMAND_WORDS execute_command(DICTIONARY *, int *);
+	static DICTIONARY *new_dictionary(void);
+	static DICTIONARY *initialize_list(char *filename);
+	static void free_dictionary(DICTIONARY *);
+	static void load_word(FILE *, DICTIONARY *);
+	
+	BYTE2 add_word(STRING word);
+	BYTE2 find_word(STRING);
+	void changevoice(int);
+	void free_words();
+	void initialize_dictionary();
+	void load_dictionary(FILE *file);
+	void make_greeting ();
+	char *make_output();
+	void make_words (char *);
+	void save_dictionary(FILE *file);
+	bool word_exists(STRING word);
+	void show_dictionary();
+
+protected:
+	int search_dictionary(STRING, bool *);
+	
+public:
+//	BYTE4 size;
+	int	 size;
+    STRING *entry;
+    BYTE2 *index;
+};
+
+class SWAP
+{
+protected:
+	static SWAP *new_swap(void);
+	void add_swap(char *, char *);
+
+public:
+	static void free_swap(SWAP *);
+	static SWAP *initialize_swap(char *);
+	
+    BYTE2 size;
+    STRING *from;
+    STRING *to;
+};
+
+class TREE;
+
+class NODE
+{
+public:
+    BYTE2 symbol;
+    BYTE4 usage;
+    BYTE2 count;
+    BYTE2 branch;
+    NODE **tree;
+	operator TREE* () { return reinterpret_cast<TREE*>(this); }
+};
+
+class TREE: public NODE
+{
+public:	
+	static TREE *allocate ();
+	static TREE *new_node(void);
+	static int search_node(TREE *, int, bool *);
+	static void free_tree(TREE *);
+	void load_tree(FILE *file);
+	static void save_tree(FILE *, TREE *);
+	int search_node(int symbol, bool *found_symbol);
+	TREE *find_symbol(int symbol);
+	TREE *add_symbol(BYTE2 symbol);
+	void add_node(TREE *node, int position);
+	TREE *find_symbol_add(BYTE2 symbol);
+	operator NODE* () { return reinterpret_cast<NODE*>(this); }
+};
+
 class MODEL
 {
 public:
+	static void load_personality(MODEL **);
+	static void change_personality(DICTIONARY *, int, MODEL **);
+	static DICTIONARY *make_keywords(MODEL *, DICTIONARY *);
 	static MODEL *allocate ();
+	static MODEL *new_model(int);
+	static void free_model(MODEL *);
+	bool load_model(char *);
+	void save_model(char *modelname);
+	void add_aux(DICTIONARY *, STRING);
+	void add_key(DICTIONARY *, STRING);
+	char *generate_reply(DICTIONARY *);
+	void initialize_context();
+	void learn (DICTIONARY *);
+	void train(char *filename);
+	DICTIONARY *make_keywords(DICTIONARY *words);
 
+protected:
+	int babble(DICTIONARY *, DICTIONARY *);
+	MATH_TYPE evaluate_reply(DICTIONARY *, DICTIONARY *);
+	DICTIONARY *reply(DICTIONARY *keys);
+	int seed(DICTIONARY *keys);
+	void update_context(int symbol);
+	void update_model(int);
+
+public:
     BYTE1 order;
     TREE *forward;
     TREE *backward;
@@ -229,31 +353,47 @@ public:
     DICTIONARY *dictionary;
 };
 
-typedef enum { UNKNOWN, QUIT, EXIT, SAVE, DELAY, HELP, SPEECH, VOICELIST, VOICE, BRAIN, QUIET} COMMAND_WORDS;
-
-typedef struct {
+class COMMAND
+{
+public:
     STRING word;
     char *helpstring;
     COMMAND_WORDS command;
-} COMMAND;
+};
+
+namespace intrinsics
+{
+	bool boundary(char *, int);
+	void capitalize(char *);
+	void delay(char *);
+	void die(int);
+	void error(char *, char *, ...);
+	char *format_output(char *output);
+	void help(void);
+	void ignore(int);
+	bool initialize_error(char *);
+	bool initialize_status(char *);
+	void listvoices(void);
+	bool print_header(FILE *);
+	bool progress(char *, int, int);
+	char *read_input(char *);
+	void speak(char *);
+	bool status(char *, ...);
+	void typein(char);
+	void upper(char *);
+	bool warn(char *, char *, ...);
+	void write_input(char *);
+	void write_output(char *);
+	int rnd(int);
+	void exithal(void);
+	void usleep (int period);
+};
 
 /*===========================================================================*/
 
-static int width=75;
-static int order=8;
-
-static bool typing_delay=FALSE;
-static bool noprompt=FALSE;
-static bool speech=FALSE;
-static bool quiet=FALSE;
-static bool nowrap=FALSE;
-static bool nobanner=FALSE;
-
-static char *errorfilename = "megahal.log";
-static char *statusfilename = "megahal.txt";
 static DICTIONARY *words=NULL;
 static DICTIONARY *greets=NULL;
-static MODEL *model=NULL;
+static MODEL *model0=NULL;
 
 static FILE *errorfp;
 static FILE *statusfp;
@@ -294,122 +434,49 @@ Boolean gSpeechExists = false;
 SpeechChannel gSpeechChannel = nil;
 #endif
 
-/* FIXME - these need to be static  */
-
-static void add_aux(MODEL *, DICTIONARY *, STRING);
-static void add_key(MODEL *, DICTIONARY *, STRING);
-static void add_node(TREE *, TREE *, int);
-static void add_swap(SWAP *, char *, char *);
-static TREE *add_symbol(TREE *, BYTE2);
-static BYTE2 add_word(DICTIONARY *, STRING);
-static int babble(MODEL *, DICTIONARY *, DICTIONARY *);
-static bool boundary(char *, int);
-static void capitalize(char *);
-static void changevoice(DICTIONARY *, int);
-static void change_personality(DICTIONARY *, int, MODEL **);
-static void delay(char *);
-static void die(int);
-static bool dissimilar(DICTIONARY *, DICTIONARY *);
-static void error(char *, char *, ...);
-static float evaluate_reply(MODEL *, DICTIONARY *, DICTIONARY *);
-static COMMAND_WORDS execute_command(DICTIONARY *, int *);
-static void exithal(void);
-static TREE *find_symbol(TREE *, int);
-static TREE *find_symbol_add(TREE *, int);
-static BYTE2 find_word(DICTIONARY *, STRING);
-static char *generate_reply(MODEL *, DICTIONARY *);
-static void help(void);
-static void ignore(int);
-static bool initialize_error(char *);
 #ifdef __mac_os
 static bool initialize_speech(void);
 #endif
-static bool initialize_status(char *);
-static void learn(MODEL *, DICTIONARY *);
-static void listvoices(void);
-static void make_greeting(DICTIONARY *);
-static void make_words(char *, DICTIONARY *);
-static DICTIONARY *new_dictionary(void);
 
-static char *read_input(char *);
-static void save_model(char *, MODEL *);
 #ifdef __mac_os
 static char *strdup(const char *);
 #endif
-static void upper(char *);
-static void write_input(char *);
-static void write_output(char *);
+
 #if defined(DOS) || defined(__mac_os)
 static void usleep(int);
 #endif
 
-
 static char *format_output(char *);
+#if 0
 static void free_dictionary(DICTIONARY *);
-static void free_model(MODEL *);
-static void free_tree(TREE *);
-static void free_word(STRING);
-static void free_words(DICTIONARY *);
-static void initialize_context(MODEL *);
-static void initialize_dictionary(DICTIONARY *);
-static DICTIONARY *initialize_list(char *);
-static SWAP *initialize_swap(char *);
-static void load_dictionary(FILE *, DICTIONARY *);
-static bool load_model(char *, MODEL *);
-static void load_personality(MODEL **);
-static void load_tree(FILE *, TREE *);
-static void load_word(FILE *, DICTIONARY *);
-static DICTIONARY *make_keywords(MODEL *, DICTIONARY *);
-static char *make_output(DICTIONARY *);
-static MODEL *new_model(int);
-static TREE *new_node(void);
-static SWAP *new_swap(void);
-static bool print_header(FILE *);
-static bool progress(char *, int, int);
-static DICTIONARY *reply(MODEL *, DICTIONARY *);
-static void save_dictionary(FILE *, DICTIONARY *);
-static void save_tree(FILE *, TREE *);
-static void save_word(FILE *, STRING);
-static int search_dictionary(DICTIONARY *, STRING, bool *);
-static int search_node(TREE *, int, bool *);
-static int seed(MODEL *, DICTIONARY *);
-static void show_dictionary(DICTIONARY *);
-static void speak(char *);
-static bool status(char *, ...);
-static void train(MODEL *, char *);
-static void typein(char);
-static void update_context(MODEL *, int);
-static void update_model(MODEL *, int);
-static bool warn(char *, char *, ...);
-static int wordcmp(STRING, STRING);
-static bool word_exists(DICTIONARY *, STRING);
-static int rnd(int);
+#endif
 
+/*
+	Function: setnoprompt
+	Purpose: Set noprompt variable.
+*/
 
-/* Function: setnoprompt
-
-   Purpose: Set noprompt variable.
-
- */
-void megahal_setnoprompt(void)
+void megahal::setnoprompt(void)
 {
     noprompt = TRUE;
 }
 
-void megahal_setnowrap (void)
+void megahal::setnowrap (void)
 {
     nowrap = TRUE;
 }
-void megahal_setnobanner (void)
+
+void megahal::setnobanner (void)
 {
     nobanner = TRUE;
 }
 
-void megahal_seterrorfile(char *filename)
+void megahal::seterrorfile(char *filename)
 {
     errorfilename = filename;
 }
-void megahal_setstatusfile(char *filename)
+
+void megahal::setstatusfile(char *filename)
 {
     statusfilename = filename;
 }
@@ -424,14 +491,14 @@ void megahal_setstatusfile(char *filename)
    None.
 */
 
-void megahal_initialize(void)
+void megahal::initialize(void)
 {
     errorfp = stderr;
     statusfp = stdout;
 
-    initialize_error(errorfilename);
-    initialize_status(statusfilename);
-    ignore(0);
+    intrinsics::initialize_error(errorfilename);
+    intrinsics::initialize_status(statusfilename);
+	intrinsics::ignore(0);
 
 #ifdef AMIGA
     _AmigaLocale=OpenLocale(NULL);
@@ -454,9 +521,9 @@ void megahal_initialize(void)
 		"+------------------------------------------------------------------------+\n"
 		);
 
-    words = new_dictionary();
-    greets = new_dictionary();
-    change_personality(NULL, 0, &model);
+	words = DICTIONARY::new_dictionary();
+    greets = DICTIONARY::new_dictionary();
+	MODEL::change_personality(NULL, 0, &model0);
 }
 
 /*
@@ -467,20 +534,20 @@ void megahal_initialize(void)
 
   */
 
-char *megahal_do_reply(char *input, int log)
+char *megahal::do_reply(char *input, int log)
 {
     char *output = NULL;
 
     if (log != 0)
-	write_input(input);  /* log input if so desired */
+	intrinsics::write_input(input);  /* log input if so desired */
 
-    upper(input);
+    intrinsics::upper(input);
 
-    make_words(input, words);
+    words->make_words(input);
 
-    learn(model, words);
-    output = generate_reply(model, words);
-    capitalize(output);
+    model0->learn(words);
+    output = model0->generate_reply(words);
+    intrinsics::capitalize(output);
     return output;
 }
 
@@ -492,12 +559,12 @@ char *megahal_do_reply(char *input, int log)
 
   */
 
-char *megahal_initial_greeting(void)
+char *megahal::initial_greeting(void)
 {
     char *output;
 
-    make_greeting(greets);
-    output = generate_reply(model, greets);
+    greets->make_greeting();
+    output = model0->generate_reply(greets);
     return output;
 }
 
@@ -510,10 +577,10 @@ char *megahal_initial_greeting(void)
 
 */
 
-void megahal_output(char *output)
+void megahal::output(char *output)
 {
     if(!quiet)
-	write_output(output);
+	intrinsics::write_output(output);
 }
 
 /*
@@ -523,12 +590,12 @@ void megahal_output(char *output)
 
   */
 
-char *megahal_input(char *prompt)
+char *megahal::input(char *prompt)
 {
     if (noprompt)
-	return read_input("");
+	return intrinsics::read_input("");
     else
-	return read_input(prompt);
+	return intrinsics::read_input(prompt);
 }
 
 /*
@@ -540,51 +607,52 @@ char *megahal_input(char *prompt)
 
   */
 
-int megahal_command(char *input)
+int megahal::command(char *input)
 {
     int position = 0;
     char *output;
 
-    make_words(input,words);
-    switch(execute_command(words, &position)) {
-    case EXIT:
-	exithal();
-	break;
+    words->make_words(input);
+	switch(DICTIONARY::execute_command(words, &position))
+	{
+	case EXIT:
+		intrinsics::exithal();
+		break;
     case QUIT:
-	save_model("megahal.brn", model);
-	exithal();
-	break;
+		model0->save_model("megahal.brn");
+		intrinsics::exithal();
+		break;
     case SAVE:
-	save_model("megahal.brn", model);
-	break;
+		model0->save_model("megahal.brn");
+		break;
     case DELAY:
-	typing_delay=!typing_delay;
-	printf("MegaHAL typing is now %s.\n", typing_delay?"on":"off");
-	return 1;
+		typing_delay=!typing_delay;
+		printf("MegaHAL typing is now %s.\n", typing_delay?"on":"off");
+		return 1;
     case SPEECH:
-	speech=!speech;
-	printf("MegaHAL speech is now %s.\n", speech?"on":"off");
-	return 1;
+		speech=!speech;
+		printf("MegaHAL speech is now %s.\n", speech?"on":"off");
+		return 1;
     case HELP:
-	help();
-	return 1;
+		intrinsics::help();
+		return 1;
     case VOICELIST:
-	listvoices();
-	return 1;
+		intrinsics::listvoices();
+		return 1;
     case VOICE:
-	changevoice(words, position);
-	return 1;
+		words->changevoice(position);
+		return 1;
     case BRAIN:
-	change_personality(words, position, &model);
-	make_greeting(greets);
-	output=generate_reply(model, greets);
-	write_output(output);
-	return 1;
+		MODEL::change_personality(words, position, &model0);
+		greets->make_greeting();
+		output=model0->generate_reply(greets);
+		intrinsics::write_output(output);
+		return 1;
     case QUIET:
-	quiet=!quiet;
-	return 1;
+		quiet=!quiet;
+		return 1;
     default:
-	return 0;
+		return 0;
     }
     return 0;
 }
@@ -596,16 +664,14 @@ int megahal_command(char *input)
 
   */
 
-void megahal_cleanup(void)
+void megahal::cleanup(void)
 {
-    save_model("megahal.brn", model);
+     model0->save_model("megahal.brn");
 
 #ifdef AMIGA
     CloseLocale(_AmigaLocale);
 #endif
 }
-
-
 
 /*---------------------------------------------------------------------------*/
 
@@ -615,10 +681,12 @@ void megahal_cleanup(void)
  *		Purpose:		Detect whether the user has typed a command, and
  *						execute the corresponding function.
  */
-COMMAND_WORDS execute_command(DICTIONARY *words, int *position)
+COMMAND_WORDS DICTIONARY::execute_command(DICTIONARY *words, int *position)
 {
-    register int i;
-    register int j;
+//  register
+	int i;
+//  register
+	int j;
 
     /*
      *		If there is only one word, then it can't be a command.
@@ -642,7 +710,7 @@ COMMAND_WORDS execute_command(DICTIONARY *words, int *position)
 	     *		Look for a command word.
 	     */
 	    for(j = 0; j < COMMAND_SIZE; ++j)
-		if(wordcmp(command[j].word, words->entry[i + 1]) == 0) {
+			if(STRING::wordcmp(command[j].word, words->entry[i + 1]) == 0) {
 		    *position = i + 1;
 		    return(command[j].command);
 		}
@@ -658,7 +726,7 @@ COMMAND_WORDS execute_command(DICTIONARY *words, int *position)
  *
  *		Purpose:		Terminate the program.
  */
-void exithal(void)
+void intrinsics::exithal(void)
 {
 #ifdef __mac_os
     /*
@@ -681,7 +749,7 @@ void exithal(void)
  *
  *		Purpose:		Read an input string from the user.
  */
-char *read_input(char *prompt)
+char *intrinsics::read_input(char *prompt)
 {
     static char *input=NULL;
     bool finish;
@@ -773,13 +841,15 @@ char *read_input(char *prompt)
  *
  *		Purpose:		Close the current error file pointer, and open a new one.
  */
-bool initialize_error(char *filename)
+bool intrinsics::initialize_error(char *filename)
 {
-    if(errorfp!=stderr) fclose(errorfp);
+    if(errorfp!=stderr)
+		fclose(errorfp);
 
-    if(filename==NULL) return(TRUE);
+    if(filename==NULL)
+		return(TRUE);
 
-    errorfp = fopen(filename, "a");
+    errno_t err = fopen_s(&errorfp,filename, "a");
     if(errorfp==NULL) {
 	errorfp=stderr;
 	return(FALSE);
@@ -794,7 +864,7 @@ bool initialize_error(char *filename)
  *
  *		Purpose:		Print the specified message to the error file.
  */
-void error(char *title, char *fmt, ...)
+void intrinsics::error(char *title, char *fmt, ...)
 {
     va_list argp;
 
@@ -812,7 +882,7 @@ void error(char *title, char *fmt, ...)
 
 /*---------------------------------------------------------------------------*/
 
-bool warn(char *title, char *fmt, ...)
+bool intrinsics::warn(char *title, char *fmt, ...)
 {
     va_list argp;
 
@@ -835,11 +905,11 @@ bool warn(char *title, char *fmt, ...)
  *
  *		Purpose:		Close the current status file pointer, and open a new one.
  */
-bool initialize_status(char *filename)
+bool intrinsics::initialize_status(char *filename)
 {
     if(statusfp!=stdout) fclose(statusfp);
     if(filename==NULL) return(FALSE);
-    statusfp=fopen(filename, "a");
+    errno_t err = fopen_s (&statusfp,filename, "a");
     if(statusfp==NULL) {
 	statusfp=stdout;
 	return(FALSE);
@@ -854,7 +924,7 @@ bool initialize_status(char *filename)
  *
  *		Purpose:		Print the specified message to the status file.
  */
-bool status(char *fmt, ...)
+bool intrinsics::status(char *fmt, ...)
 {
     va_list argp;
 
@@ -873,14 +943,14 @@ bool status(char *fmt, ...)
  *
  *		Purpose:		Display a copyright message and timestamp.
  */
-bool print_header(FILE *file)
+bool intrinsics::print_header(FILE *file)
 {
     time_t clock;
     char timestamp[1024];
     struct tm *local;
 
     clock=time(NULL);
-    local=localtime(&clock);
+    local=localtime (&clock);
     strftime(timestamp, 1024, "Start at: [%Y/%m/%d %H:%M:%S]\n", local);
 
     fprintf(file, "MegaHALv8\n");
@@ -898,9 +968,10 @@ bool print_header(FILE *file)
  *
  *    Purpose:    Display the output string.
  */
-void write_output(char *output)
+void intrinsics::write_output(char *output)
 {
     char *formatted;
+	char *next_token;
     char *bit;
 
     capitalize(output);
@@ -912,11 +983,11 @@ void write_output(char *output)
     width=64;
     formatted=format_output(output);
 
-    bit=strtok(formatted, "\n");
+    bit=strtok_s(formatted, "\n",&next_token);
     if(bit==NULL) (void)status("MegaHAL: %s\n", formatted);
     while(bit!=NULL) {
 	(void)status("MegaHAL: %s\n", bit);
-	bit=strtok(NULL, "\n");
+	bit=strtok_s(NULL, "\n",&next_token);
     }
 }
 
@@ -927,7 +998,7 @@ void write_output(char *output)
  *
  *		Purpose:		Convert a string to look nice.
  */
-void capitalize(char *string)
+void intrinsics::capitalize(char *string)
 {
     register int i;
     bool start=TRUE;
@@ -952,7 +1023,7 @@ void capitalize(char *string)
  *
  *		Purpose:		Convert a string to its uppercase representation.
  */
-void upper(char *string)
+void intrinsics::upper(char *string)
 {
     register int i;
 
@@ -966,19 +1037,21 @@ void upper(char *string)
  *
  *    Purpose:    Log the user's input
  */
-void write_input(char *input)
+void intrinsics::write_input(char *input)
 {
     char *formatted;
+	char *next_token;
     char *bit;
 
     width=64;
     formatted=format_output(input);
 
-    bit=strtok(formatted, "\n");
-    if(bit==NULL) (void)status("User:    %s\n", formatted);
+	bit=strtok_s (formatted, "\n",&next_token);
+    if(bit==NULL)
+		(void)status ("User:    %s\n", formatted);
     while(bit!=NULL) {
-	(void)status("User:    %s\n", bit);
-	bit=strtok(NULL, "\n");
+	(void)status ("User:    %s\n", bit);
+	bit=strtok_s (NULL, "\n",&next_token);
     }
 }
 
@@ -990,7 +1063,7 @@ void write_input(char *input)
  *    Purpose:    Format a string to display nicely on a terminal of a given
  *                width.
  */
-static char *format_output(char *output)
+char *intrinsics::format_output(char *output)
 {
     static char *formatted=NULL;
     register int i,j,c;
@@ -998,14 +1071,14 @@ static char *format_output(char *output)
     if(formatted==NULL) {
 	formatted=(char *)malloc(sizeof(char));
 	if(formatted==NULL) {
-	    error("format_output", "Unable to allocate formatted");
+	    intrinsics::error("format_output", "Unable to allocate formatted");
 	    return("ERROR");
 	}
     }
 
     formatted=(char *)realloc((char *)formatted, sizeof(char)*(strlen(output)+2));
     if(formatted==NULL) {
-	error("format_output", "Unable to re-allocate formatted");
+	intrinsics::error("format_output", "Unable to re-allocate formatted");
 	return("ERROR");
     }
 
@@ -1044,8 +1117,9 @@ static char *format_output(char *output)
  *						the dictionary, then return its current identifier
  *						without adding it again.
  */
-BYTE2 add_word(DICTIONARY *dictionary, STRING word)
+BYTE2 DICTIONARY::add_word(STRING word)
 {
+	DICTIONARY *dictionary = this;
     register int i;
     int position;
     bool found;
@@ -1053,7 +1127,7 @@ BYTE2 add_word(DICTIONARY *dictionary, STRING word)
     /*
      *		If the word's already in the dictionary, there is no need to add it
      */
-    position=search_dictionary(dictionary, word, &found);
+    position=search_dictionary(word, &found);
     if(found==TRUE) goto succeed;
 
     /*
@@ -1072,7 +1146,7 @@ BYTE2 add_word(DICTIONARY *dictionary, STRING word)
 					   (dictionary->index),sizeof(BYTE2)*(dictionary->size));
     }
     if(dictionary->index==NULL) {
-	error("add_word", "Unable to reallocate the index.");
+	intrinsics::error("add_word", "Unable to reallocate the index.");
 	goto fail;
     }
 
@@ -1086,7 +1160,7 @@ BYTE2 add_word(DICTIONARY *dictionary, STRING word)
 					    sizeof(STRING)*(dictionary->size));
     }
     if(dictionary->entry==NULL) {
-	error("add_word", "Unable to reallocate the dictionary to %d elements.", dictionary->size);
+	intrinsics::error("add_word", "Unable to reallocate the dictionary to %d elements.", dictionary->size);
 	goto fail;
     }
 
@@ -1097,7 +1171,7 @@ BYTE2 add_word(DICTIONARY *dictionary, STRING word)
     dictionary->entry[dictionary->size-1].word=(char *)malloc(sizeof(char)*
 							      (word.length));
     if(dictionary->entry[dictionary->size-1].word==NULL) {
-	error("add_word", "Unable to allocate the word.");
+	intrinsics::error("add_word", "Unable to allocate the word.");
 	goto fail;
     }
     for(i=0; i<word.length; ++i)
@@ -1130,8 +1204,9 @@ fail:
  *						position in the index if found, or the position where it
  *						should be inserted otherwise.
  */
-int search_dictionary(DICTIONARY *dictionary, STRING word, bool *find)
+int DICTIONARY::search_dictionary(STRING word, bool *find)
 {
+	DICTIONARY *dictionary = this; 
     int position;
     int min;
     int max;
@@ -1161,7 +1236,7 @@ int search_dictionary(DICTIONARY *dictionary, STRING word, bool *find)
 	 *		than, equal to, or less than the element being searched for.
 	 */
 	middle=(min+max)/2;
-	compar=wordcmp(word, dictionary->entry[dictionary->index[middle]]);
+	compar=STRING::wordcmp(word, dictionary->entry[dictionary->index[middle]]);
 	/*
 	 *		If it is equal then we have found the element.  Otherwise we
 	 *		can halve the search space accordingly.
@@ -1202,15 +1277,18 @@ notfound:
  *						We assume that the word with index zero is equal to a
  *						NULL word, indicating an error condition.
  */
-BYTE2 find_word(DICTIONARY *dictionary, STRING word)
+BYTE2 DICTIONARY::find_word(STRING word)
 {
+	DICTIONARY *dictionary = this;
     int position;
     bool found;
 
-    position=search_dictionary(dictionary, word, &found);
+    position=search_dictionary(word, &found);
 
-    if(found==TRUE) return(dictionary->index[position]);
-    else return(0);
+    if(found==TRUE)
+		return(dictionary->index[position]);
+    else
+		return(0);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1222,7 +1300,7 @@ BYTE2 find_word(DICTIONARY *dictionary, STRING word)
  *						the first word is less than, equal to or greater than the
  *						second word.
  */
-int wordcmp(STRING word1, STRING word2)
+int STRING::wordcmp(STRING word1, STRING word2)
 {
     register int i;
     int bound;
@@ -1246,7 +1324,7 @@ int wordcmp(STRING word1, STRING word2)
  *
  *		Purpose:		Release the memory consumed by the dictionary.
  */
-void free_dictionary(DICTIONARY *dictionary)
+void DICTIONARY::free_dictionary(DICTIONARY *dictionary)
 {
     if(dictionary==NULL) return;
     if(dictionary->entry!=NULL) {
@@ -1262,20 +1340,20 @@ void free_dictionary(DICTIONARY *dictionary)
 
 /*---------------------------------------------------------------------------*/
 
-void free_model(MODEL *model)
+void MODEL::free_model(MODEL *model)
 {
     if(model==NULL) return;
     if(model->forward!=NULL) {
-	free_tree(model->forward);
+		TREE::free_tree(model->forward);
     }
     if(model->backward!=NULL) {
-	free_tree(model->backward);
+	TREE::free_tree(model->backward);
     }
     if(model->context!=NULL) {
 	free(model->context);
     }
     if(model->dictionary!=NULL) {
-	free_dictionary(model->dictionary);
+	DICTIONARY::free_dictionary(model->dictionary);
 	free(model->dictionary);
     }
     free(model);
@@ -1283,22 +1361,26 @@ void free_model(MODEL *model)
 
 /*---------------------------------------------------------------------------*/
 
-void free_tree(TREE *tree)
+void TREE::free_tree(TREE *tree)
 {
     static int level=0;
     register int i;
 
-    if(tree==NULL) return;
+    if(tree==NULL)
+		return;
 
     if(tree->tree!=NULL) {
-	if(level==0) progress("Freeing tree", 0, 1);
+	if(level==0)
+		intrinsics::progress("Freeing tree", 0, 1);
 	for(i=0; i<tree->branch; ++i) {
 	    ++level;
-	    free_tree(tree->tree[i]);
+	    free_tree(static_cast<TREE*>(tree->tree[i]));
 	    --level;
-	    if(level==0) progress(NULL, i, tree->branch);
+	    if(level==0)
+			intrinsics::progress(NULL, i, tree->branch);
 	}
-	if(level==0) progress(NULL, 1, 1);
+	if(level==0)
+		intrinsics::progress(NULL, 1, 1);
 	free(tree->tree);
     }
     free(tree);
@@ -1311,13 +1393,14 @@ void free_tree(TREE *tree)
  *
  *		Purpose:		Add dummy words to the dictionary.
  */
-void initialize_dictionary(DICTIONARY *dictionary)
+void DICTIONARY::initialize_dictionary()
 {
+	DICTIONARY *dictionary = this;
     STRING word={ 7, "<ERROR>" };
     STRING end={ 5, "<FIN>" };
 
-    (void)add_word(dictionary, word);
-    (void)add_word(dictionary, end);
+    (void)dictionary->add_word(word);
+    (void)dictionary->add_word(end);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1327,13 +1410,13 @@ void initialize_dictionary(DICTIONARY *dictionary)
  *
  *		Purpose:		Allocate room for a new dictionary.
  */
-DICTIONARY *new_dictionary(void)
+DICTIONARY *DICTIONARY::new_dictionary(void)
 {
     DICTIONARY *dictionary=NULL;
 
     dictionary=(DICTIONARY *)malloc(sizeof(DICTIONARY));
     if(dictionary==NULL) {
-	error("new_dictionary", "Unable to allocate dictionary.");
+		intrinsics::error("new_dictionary", "Unable to allocate dictionary.");
 	return(NULL);
     }
 
@@ -1351,17 +1434,19 @@ DICTIONARY *new_dictionary(void)
  *
  *		Purpose:		Save a dictionary to the specified file.
  */
-void save_dictionary(FILE *file, DICTIONARY *dictionary)
+void DICTIONARY::save_dictionary(FILE *file)
 {
-    register int i;
+//  register
+	int i;
+	DICTIONARY *dictionary = this;
 
     fwrite(&(dictionary->size), sizeof(BYTE4), 1, file);
-    progress("Saving dictionary", 0, 1);
+    intrinsics::progress("Saving dictionary", 0, 1);
     for(i=0; i<dictionary->size; ++i) {
-	save_word(file, dictionary->entry[i]);
-	progress(NULL, i, dictionary->size);
+	STRING::save_word(file, dictionary->entry[i]);
+	intrinsics::progress(NULL, i, dictionary->size);
     }
-    progress(NULL, 1, 1);
+    intrinsics::progress(NULL, 1, 1);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1371,18 +1456,20 @@ void save_dictionary(FILE *file, DICTIONARY *dictionary)
  *
  *		Purpose:		Load a dictionary from the specified file.
  */
-void load_dictionary(FILE *file, DICTIONARY *dictionary)
+void DICTIONARY::load_dictionary(FILE *file)
 {
-    register int i;
+//  register
+	int i;
     int size;
+	DICTIONARY *dictionary = this;
 
     fread(&size, sizeof(BYTE4), 1, file);
-    progress("Loading dictionary", 0, 1);
+    intrinsics::progress("Loading dictionary", 0, 1);
     for(i=0; i<size; ++i) {
-	load_word(file, dictionary);
-	progress(NULL, i, size);
+		load_word(file, dictionary);
+		intrinsics::progress(NULL, i, size);
     }
-    progress(NULL, 1, 1);
+	intrinsics::progress(NULL, 1, 1);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1392,9 +1479,10 @@ void load_dictionary(FILE *file, DICTIONARY *dictionary)
  *
  *		Purpose:		Save a dictionary word to a file.
  */
-void save_word(FILE *file, STRING word)
+void STRING::save_word(FILE *file, STRING word)
 {
-    register int i;
+//  register
+	int i;
 
     fwrite(&(word.length), sizeof(BYTE1), 1, file);
     for(i=0; i<word.length; ++i)
@@ -1408,20 +1496,22 @@ void save_word(FILE *file, STRING word)
  *
  *		Purpose:		Load a dictionary word from a file.
  */
-void load_word(FILE *file, DICTIONARY *dictionary)
+void DICTIONARY::load_word(FILE *file, DICTIONARY *dictionary)
 {
-    register int i;
+//  register
+	int i;
     STRING word;
 
     fread(&(word.length), sizeof(BYTE1), 1, file);
     word.word=(char *)malloc(sizeof(char)*word.length);
     if(word.word==NULL) {
-	error("load_word", "Unable to allocate word");
+		intrinsics::error("load_word", "Unable to allocate word");
 	return;
     }
     for(i=0; i<word.length; ++i)
-	fread(&(word.word[i]), sizeof(char), 1, file);
-    add_word(dictionary, word);
+		fread(&(word.word[i]), sizeof(char), 1, file);
+
+    dictionary->add_word(word);
     free(word.word);
 }
 
@@ -1433,7 +1523,7 @@ void load_word(FILE *file, DICTIONARY *dictionary)
  *		Purpose:		Allocate a new node for the n-gram tree, and initialise
  *						its contents to sensible values.
  */
-TREE *new_node(void)
+TREE *TREE::new_node(void)
 {
     TREE *node=NULL;
 
@@ -1442,7 +1532,7 @@ TREE *new_node(void)
      */
     node=(TREE *)malloc(sizeof(TREE));
     if(node==NULL) {
-	error("new_node", "Unable to allocate the node.");
+		intrinsics::error("new_node", "Unable to allocate the node.");
 	goto fail;
     }
 
@@ -1476,7 +1566,7 @@ MODEL *MODEL::allocate()
  *
  *		Purpose:		Create and initialise a new ngram model.
  */
-MODEL *new_model(int order)
+MODEL *MODEL::new_model(int order)
 {
     MODEL *model=NULL;
 
@@ -1484,21 +1574,22 @@ MODEL *new_model(int order)
 	model = MODEL::allocate ();
 
     if(model==NULL) {
-	error("new_model", "Unable to allocate model.");
+	intrinsics::error("new_model", "Unable to allocate model.");
 	goto fail;
     }
 
     model->order=order;
-    model->forward=new_node();
-    model->backward=new_node();
+	model->forward=TREE::new_node();
+	model->backward=TREE::new_node();
     model->context=(TREE **)malloc(sizeof(TREE *)*(order+2));
     if(model->context==NULL) {
-	error("new_model", "Unable to allocate context array.");
-	goto fail;
+		intrinsics::error("new_model", "Unable to allocate context array.");
+	goto
+		fail;
     }
-    initialize_context(model);
-    model->dictionary=new_dictionary();
-    initialize_dictionary(model->dictionary);
+    model->initialize_context();
+	model->dictionary=DICTIONARY::new_dictionary();
+    model->dictionary->initialize_dictionary();
 
     return(model);
 
@@ -1513,9 +1604,11 @@ fail:
  *
  *		Purpose:		Update the model with the specified symbol.
  */
-void update_model(MODEL *model, int symbol)
+void MODEL::update_model(int symbol)
 {
-    register int i;
+	MODEL *model = this;
+//  register
+	int i;
 
     /*
      *		Update all of the models in the current context with the specified
@@ -1523,8 +1616,9 @@ void update_model(MODEL *model, int symbol)
      */
     for(i=(model->order+1); i>0; --i)
 	if(model->context[i-1]!=NULL)
-	    model->context[i]=add_symbol(model->context[i-1], (BYTE2)symbol);
-
+	{
+	    model->context[i]=model->context[i-1]->add_symbol((BYTE2)symbol);
+	}
     return;
 }
 
@@ -1535,13 +1629,18 @@ void update_model(MODEL *model, int symbol)
  *
  *		Purpose:		Update the context of the model without adding the symbol.
  */
-void update_context(MODEL *model, int symbol)
+void MODEL::update_context(int symbol)
 {
-    register int i;
-
+//  register
+	int i;
+	MODEL *model = this;
+	TREE *tptr;
     for(i=(model->order+1); i>0; --i)
 	if(model->context[i-1]!=NULL)
-	    model->context[i]=find_symbol(model->context[i-1], symbol);
+	{
+		tptr = model->context[i-1];
+	    model->context[i]=tptr->find_symbol(symbol);
+	}
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1553,14 +1652,15 @@ void update_context(MODEL *model, int symbol)
  *						specified symbol, which may mean growing the tree if the
  *						symbol hasn't been seen in this context before.
  */
-TREE *add_symbol(TREE *tree, BYTE2 symbol)
+TREE *TREE::add_symbol(BYTE2 symbol)
 {
+	TREE *tree = this;
     TREE *node=NULL;
 
     /*
      *		Search for the symbol in the subtree of the tree node.
      */
-    node=find_symbol_add(tree, symbol);
+    node=tree->find_symbol_add(symbol);
 
     /*
      *		Increment the symbol counts
@@ -1581,17 +1681,19 @@ TREE *add_symbol(TREE *tree, BYTE2 symbol)
  *		Purpose:		Return a pointer to the child node, if one exists, which
  *						contains the specified symbol.
  */
-TREE *find_symbol(TREE *node, int symbol)
+TREE *TREE::find_symbol(int symbol)
 {
-    register int i;
+//  register
+	int i;
+	TREE *node = this;
     TREE *found=NULL;
     bool found_symbol=FALSE;
 
     /*
      *		Perform a binary search for the symbol.
      */
-    i=search_node(node, symbol, &found_symbol);
-    if(found_symbol==TRUE) found=node->tree[i];
+    i=node->search_node(symbol, &found_symbol);
+    if(found_symbol==TRUE) found= static_cast<TREE*>(node->tree[i]);
 
     return(found);
 }
@@ -1606,9 +1708,11 @@ TREE *find_symbol(TREE *node, int symbol)
  *						a new node is automatically allocated and added to the
  *						tree.
  */
-TREE *find_symbol_add(TREE *node, int symbol)
+TREE *TREE::find_symbol_add(BYTE2 symbol)
 {
-    register int i;
+//  register
+	int i;
+	TREE *node = this;
     TREE *found=NULL;
     bool found_symbol=FALSE;
 
@@ -1616,13 +1720,13 @@ TREE *find_symbol_add(TREE *node, int symbol)
      *		Perform a binary search for the symbol.  If the symbol isn't found,
      *		attach a new sub-node to the tree node so that it remains sorted.
      */
-    i=search_node(node, symbol, &found_symbol);
+    i=node->search_node(symbol, &found_symbol);
     if(found_symbol==TRUE) {
-	found=node->tree[i];
+	found=static_cast<TREE*>(node->tree[i]);
     } else {
 	found=new_node();
 	found->symbol=symbol;
-	add_node(node, found, i);
+	node->add_node(found, i);
     }
 
     return(found);
@@ -1636,22 +1740,24 @@ TREE *find_symbol_add(TREE *node, int symbol)
  *		Purpose:		Attach a new child node to the sub-tree of the tree
  *						specified.
  */
-void add_node(TREE *tree, TREE *node, int position)
+void TREE::add_node(TREE *node, int position)
 {
-    register int i;
+	TREE *tree = this;
+//  register
+	int i;
 
     /*
      *		Allocate room for one more child node, which may mean allocating
      *		the sub-tree from scratch.
      */
     if(tree->tree==NULL) {
-	tree->tree=(TREE **)malloc(sizeof(TREE *)*(tree->branch+1));
+	tree->tree=(NODE **)malloc(sizeof(TREE *)*(tree->branch+1));
     } else {
-	tree->tree=(TREE **)realloc((TREE **)(tree->tree),sizeof(TREE *)*
+	tree->tree=(NODE **)realloc((TREE **)(tree->tree),sizeof(TREE *)*
 				    (tree->branch+1));
     }
     if(tree->tree==NULL) {
-	error("add_node", "Unable to reallocate subtree.");
+	intrinsics::error("add_node", "Unable to reallocate subtree.");
 	return;
     }
 
@@ -1680,9 +1786,11 @@ void add_node(TREE *tree, TREE *node, int position)
  *						position where it should be inserted to keep the subtree
  *						sorted if it wasn't.
  */
-int search_node(TREE *node, int symbol, bool *found_symbol)
+int TREE::search_node(int symbol, bool *found_symbol)
 {
-    register int position;
+//  register
+	TREE *node = this;
+	int position;
     int min;
     int max;
     int middle;
@@ -1738,11 +1846,13 @@ notfound:
  *
  *		Purpose:		Set the context of the model to a default value.
  */
-void initialize_context(MODEL *model)
+void MODEL::initialize_context()
 {
-    register int i;
-
-    for(i=0; i<=model->order; ++i) model->context[i]=NULL;
+//  register
+	int i;
+	MODEL *model = this;
+    for(i=0; i<=model->order; ++i)
+		model->context[i]=NULL;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1752,9 +1862,11 @@ void initialize_context(MODEL *model)
  *
  *		Purpose:		Learn from the user's input.
  */
-void learn(MODEL *model, DICTIONARY *words)
+void MODEL::learn(DICTIONARY *words)
 {
-    register int i;
+//  register
+	int i;
+	MODEL *model = this;
     BYTE2 symbol;
 
     /*
@@ -1766,39 +1878,40 @@ void learn(MODEL *model, DICTIONARY *words)
      *		Train the model in the forwards direction.  Start by initializing
      *		the context of the model.
      */
-    initialize_context(model);
+    model->initialize_context();
     model->context[0]=model->forward;
     for(i=0; i<words->size; ++i) {
 	/*
 	 *		Add the symbol to the model's dictionary if necessary, and then
 	 *		update the forward model accordingly.
 	 */
-	symbol=add_word(model->dictionary, words->entry[i]);
-	update_model(model, symbol);
+	DICTIONARY *d = model->dictionary; 
+	symbol=d->add_word(words->entry[i]);
+	model->update_model(symbol);
     }
     /*
      *		Add the sentence-terminating symbol.
      */
-    update_model(model, 1);
+    model->update_model(1);
 
     /*
      *		Train the model in the backwards direction.  Start by initializing
      *		the context of the model.
      */
-    initialize_context(model);
+    model->initialize_context();
     model->context[0]=model->backward;
     for(i=words->size-1; i>=0; --i) {
 	/*
 	 *		Find the symbol in the model's dictionary, and then update
 	 *		the backward model accordingly.
 	 */
-	symbol=find_word(model->dictionary, words->entry[i]);
-	update_model(model, symbol);
+	symbol=model->dictionary->find_word(words->entry[i]);
+	model->update_model(symbol);
     }
     /*
      *		Add the sentence-terminating symbol.
      */
-    update_model(model, 1);
+    model->update_model(1);
 
     return;
 }
@@ -1810,18 +1923,20 @@ void learn(MODEL *model, DICTIONARY *words)
  *
  *		Purpose:	 	Infer a MegaHAL brain from the contents of a text file.
  */
-void train(MODEL *model, char *filename)
+void MODEL::train(char *filename)
 {
+	MODEL *model = this;
     FILE *file;
     char buffer[1024];
     DICTIONARY *words=NULL;
     int length;
 
-    if(filename==NULL) return;
+    if(filename==NULL)
+		return;
 
-    file=fopen(filename, "r");
+    errno_t err = fopen_s (&file,filename, "r");
     if(file==NULL) {
-	printf("Unable to find the personality %s\n", filename);
+		printf("Unable to find the personality %s\n", filename);
 	return;
     }
 
@@ -1829,9 +1944,9 @@ void train(MODEL *model, char *filename)
     length=ftell(file);
     rewind(file);
 
-    words=new_dictionary();
+    words=DICTIONARY::new_dictionary();
 
-    progress("Training from file", 0, 1);
+    intrinsics::progress("Training from file", 0, 1);
     while(!feof(file)) {
 
 	if(fgets(buffer, 1024, file)==NULL) break;
@@ -1839,16 +1954,16 @@ void train(MODEL *model, char *filename)
 
 	buffer[strlen(buffer)-1]='\0';
 
-	upper(buffer);
-	make_words(buffer, words);
-	learn(model, words);
+	intrinsics::upper(buffer);
+	words->make_words(buffer);
+	model->learn(words);
 
-	progress(NULL, ftell(file), length);
+	intrinsics::progress(NULL, ftell(file), length);
 
     }
-    progress(NULL, 1, 1);
+    intrinsics::progress(NULL, 1, 1);
 
-    free_dictionary(words);
+    DICTIONARY::free_dictionary(words);
     fclose(file);
 }
 
@@ -1859,15 +1974,18 @@ void train(MODEL *model, char *filename)
  *
  *		Purpose:		Display the dictionary for training purposes.
  */
-void show_dictionary(DICTIONARY *dictionary)
+void DICTIONARY::show_dictionary()
 {
-    register int i;
-    register int j;
+	DICTIONARY *dictionary = this;
+//    register
+	int i;
+//    register
+	int j;
     FILE *file;
 
-    file=fopen("megahal.dic", "w");
+    errno_t err = fopen_s (&file,"megahal.dic", "w");
     if(file==NULL) {
-	warn("show_dictionary", "Unable to open file");
+		intrinsics::warn("show_dictionary", "Unable to open file");
 	return;
     }
 
@@ -1887,35 +2005,40 @@ void show_dictionary(DICTIONARY *dictionary)
  *
  *		Purpose:		Save the current state to a MegaHAL brain file.
  */
-void save_model(char *modelname, MODEL *model)
+void MODEL::save_model(char *modelname)
 {
+	MODEL *model = this;
     FILE *file;
+	int sz;
     static char *filename=NULL;
 
-    if(filename==NULL) filename=(char *)malloc(sizeof(char)*1);
+    if(filename==NULL)
+		filename=(char *)malloc(sizeof(char)*1);
 
+	sz = sizeof(char)*(strlen(directory)+strlen(SEP)+12);
     /*
      *    Allocate memory for the filename
      */
-    filename=(char *)realloc(filename,
-			     sizeof(char)*(strlen(directory)+strlen(SEP)+12));
-    if(filename==NULL) error("save_model","Unable to allocate filename");
+    filename=(char *)realloc(filename,sz+1);
+    if(filename==NULL)
+		intrinsics::error("save_model","Unable to allocate filename");
 
-    show_dictionary(model->dictionary);
-    if(filename==NULL) return;
+    model->dictionary->show_dictionary();
+    if(filename==NULL)
+		return;
 
-    sprintf(filename, "%s%smegahal.brn", directory, SEP);
-    file=fopen(filename, "wb");
+    sprintf_s (filename,sz, "%s%smegahal.brn", directory, SEP);
+    errno_t err = fopen_s (&file,filename, "wb");
     if(file==NULL) {
-	warn("save_model", "Unable to open file `%s'", filename);
+	intrinsics::warn("save_model", "Unable to open file `%s'", filename);
 	return;
     }
 
     fwrite(COOKIE, sizeof(char), strlen(COOKIE), file);
     fwrite(&(model->order), sizeof(BYTE1), 1, file);
-    save_tree(file, model->forward);
-    save_tree(file, model->backward);
-    save_dictionary(file, model->dictionary);
+	TREE::save_tree(file, model->forward);
+    TREE::save_tree(file, model->backward);
+    model->dictionary->save_dictionary(file);
 
     fclose(file);
 }
@@ -1927,24 +2050,28 @@ void save_model(char *modelname, MODEL *model)
  *
  *		Purpose:		Save a tree structure to the specified file.
  */
-void save_tree(FILE *file, TREE *node)
+void TREE::save_tree(FILE *file, TREE *node)
 {
     static int level=0;
-    register int i;
+//  register
+	int i;
 
     fwrite(&(node->symbol), sizeof(BYTE2), 1, file);
     fwrite(&(node->usage), sizeof(BYTE4), 1, file);
     fwrite(&(node->count), sizeof(BYTE2), 1, file);
     fwrite(&(node->branch), sizeof(BYTE2), 1, file);
 
-    if(level==0) progress("Saving tree", 0, 1);
+    if(level==0)
+		intrinsics::progress("Saving tree", 0, 1);
     for(i=0; i<node->branch; ++i) {
 	++level;
-	save_tree(file, node->tree[i]);
+	save_tree(file, static_cast<TREE*>(node->tree[i]));
 	--level;
-	if(level==0) progress(NULL, i, node->branch);
+	if(level==0)
+		intrinsics::progress(NULL, i, node->branch);
     }
-    if(level==0) progress(NULL, 1, 1);
+    if(level==0)
+		intrinsics::progress(NULL, 1, 1);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1954,33 +2081,41 @@ void save_tree(FILE *file, TREE *node)
  *
  *		Purpose:		Load a tree structure from the specified file.
  */
-void load_tree(FILE *file, TREE *node)
+void TREE::load_tree(FILE *file)
 {
+	TREE *node = this;
     static int level=0;
-    register int i;
+//  register
+	int i;
 
     fread(&(node->symbol), sizeof(BYTE2), 1, file);
     fread(&(node->usage), sizeof(BYTE4), 1, file);
     fread(&(node->count), sizeof(BYTE2), 1, file);
     fread(&(node->branch), sizeof(BYTE2), 1, file);
 
-    if(node->branch==0) return;
+    if(node->branch==0)
+		return;
 
-    node->tree=(TREE **)malloc(sizeof(TREE *)*(node->branch));
+    node->tree=(NODE **)malloc(sizeof(TREE *)*(node->branch));
     if(node->tree==NULL) {
-	error("load_tree", "Unable to allocate subtree");
+		intrinsics::error("load_tree", "Unable to allocate subtree");
 	return;
     }
 
-    if(level==0) progress("Loading tree", 0, 1);
-    for(i=0; i<node->branch; ++i) {
-	node->tree[i]=new_node();
-	++level;
-	load_tree(file, node->tree[i]);
-	--level;
-	if(level==0) progress(NULL, i, node->branch);
+    if(level==0)
+		intrinsics::progress("Loading tree", 0, 1);
+    for(i=0; i<node->branch; ++i)
+	{
+		node->tree[i]=new_node();
+		++level;
+		TREE *tree = static_cast<TREE*>(node->tree[i]);
+		tree->load_tree(file);
+		--level;
+		if(level==0)
+			intrinsics::progress(NULL, i, node->branch);
     }
-    if(level==0) progress(NULL, 1, 1);
+    if(level==0)
+		intrinsics::progress(NULL, 1, 1);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1990,32 +2125,33 @@ void load_tree(FILE *file, TREE *node)
  *
  *		Purpose:		Load a model into memory.
  */
-bool load_model(char *filename, MODEL *model)
+bool MODEL::load_model(char *filename)
 {
     FILE *file;
+	MODEL *model = this;
     char cookie[16];
 
+    if(filename==NULL)
+		return(FALSE);
 
-    if(filename==NULL) return(FALSE);
-
-    file=fopen(filename, "rb");
+    errno_t err = fopen_s (&file,filename, "rb");
 
     if(file==NULL) {
-	warn("load_model", "Unable to open file `%s'", filename);
+	intrinsics::warn("load_model", "Unable to open file `%s'", filename);
 	return(FALSE);
     }
 
 
     fread(cookie, sizeof(char), strlen(COOKIE), file);
     if(strncmp(cookie, COOKIE, strlen(COOKIE))!=0) {
-	warn("load_model", "File `%s' is not a MegaHAL brain", filename);
+	intrinsics::warn("load_model", "File `%s' is not a MegaHAL brain", filename);
 	goto fail;
     }
 
     fread(&(model->order), sizeof(BYTE1), 1, file);
-    load_tree(file, model->forward);
-    load_tree(file, model->backward);
-    load_dictionary(file, model->dictionary);
+    model->forward->load_tree(file);
+    model->backward->load_tree(file);
+    model->dictionary->load_dictionary(file);
 
     return(TRUE);
 fail:
@@ -2031,19 +2167,21 @@ fail:
  *
  *    Purpose:    Break a string into an array of words.
  */
-void make_words(char *input, DICTIONARY *words)
+void DICTIONARY::make_words(char *input)
 {
+	DICTIONARY *words = this;
     int offset=0;
 
     /*
      *		Clear the entries in the dictionary
      */
-    free_dictionary(words);
+    DICTIONARY::free_dictionary(words);
 
     /*
      *		If the string is empty then do nothing, for it contains no words.
      */
-    if(strlen(input)==0) return;
+    if(strlen(input)==0)
+		return;
 
     /*
      *		Loop forever.
@@ -2055,7 +2193,7 @@ void make_words(char *input, DICTIONARY *words)
 	 *		character, then include it in the word.  Otherwise, terminate
 	 *		the current word.
 	 */
-	if(boundary(input, offset)) {
+	if(intrinsics::boundary(input, offset)) {
 	    /*
 	     *		Add the word to the dictionary
 	     */
@@ -2065,7 +2203,7 @@ void make_words(char *input, DICTIONARY *words)
 		words->entry=(STRING *)realloc(words->entry, (words->size+1)*sizeof(STRING));
 
 	    if(words->entry==NULL) {
-		error("make_words", "Unable to reallocate dictionary");
+			intrinsics::error("make_words", "Unable to reallocate dictionary");
 		return;
 	    }
 
@@ -2093,7 +2231,7 @@ void make_words(char *input, DICTIONARY *words)
 	else
 	    words->entry=(STRING *)realloc(words->entry, (words->size+1)*sizeof(STRING));
 	if(words->entry==NULL) {
-	    error("make_words", "Unable to reallocate dictionary");
+	    intrinsics::error("make_words", "Unable to reallocate dictionary");
 	    return;
 	}
 
@@ -2116,11 +2254,11 @@ void make_words(char *input, DICTIONARY *words)
  *		Purpose:		Return whether or not a word boundary exists in a string
  *						at the specified location.
  */
-bool boundary(char *string, int position)
+bool intrinsics::boundary(char *string, int position)
 {
 	unsigned char c1,c2;
     if(position==0)
-	return(FALSE);
+		return(FALSE);
 
     if(position==(int)strlen(string))
 	return(TRUE);
@@ -2159,7 +2297,7 @@ bool boundary(char *string, int position)
 	return(TRUE);
 
     return(FALSE);
-}
+} 
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -2168,13 +2306,17 @@ bool boundary(char *string, int position)
  *		Purpose:		Put some special words into the dictionary so that the
  *						program will respond as if to a new judge.
  */
-void make_greeting(DICTIONARY *words)
+void DICTIONARY::make_greeting()
 {
-    register int i;
+//  register
+	int i;
+	DICTIONARY *words = this;
 
-    for(i=0; i<words->size; ++i) free(words->entry[i].word);
-    free_dictionary(words);
-    if(grt->size>0) (void)add_word(words, grt->entry[rnd(grt->size)]);
+    for(i=0; i<words->size; ++i)
+		free(words->entry[i].word);
+    DICTIONARY::free_dictionary(words);
+    if(grt->size>0)
+		(void)words->add_word(grt->entry[intrinsics::rnd(grt->size)]);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2185,13 +2327,14 @@ void make_greeting(DICTIONARY *words)
  *                which may vaguely be construed as containing a reply to
  *                whatever is in the input string.
  */
-char *generate_reply(MODEL *model, DICTIONARY *words)
+char *MODEL::generate_reply(DICTIONARY *words)
 {
+	MODEL *model = this;
     static DICTIONARY *dummy=NULL;
     DICTIONARY *replywords;
     DICTIONARY *keywords;
-    float surprise;
-    float max_surprise;
+    MATH_TYPE surprise;
+    MATH_TYPE max_surprise;
     char *output;
     static char *output_none=NULL;
     int count;
@@ -2201,7 +2344,7 @@ char *generate_reply(MODEL *model, DICTIONARY *words)
     /*
      *		Create an array of keywords from the words in the user's input
      */
-    keywords=make_keywords(model, words);
+    keywords=model->make_keywords(words);
 
     /*
      *		Make sure some sort of reply exists
@@ -2209,32 +2352,34 @@ char *generate_reply(MODEL *model, DICTIONARY *words)
     if(output_none==NULL) {
 	output_none=(char*)malloc(40);
 	if(output_none!=NULL)
-	    strcpy(output_none, "I don't know enough to answer you yet!");
+	    strcpy_s(output_none,39,"I don't know enough to answer you yet!");
     }
     output=output_none;
-    if(dummy == NULL) dummy = new_dictionary();
-    replywords = reply(model, dummy);
-    if(dissimilar(words, replywords) == TRUE) output = make_output(replywords);
+    if(dummy == NULL) 
+		dummy = DICTIONARY::new_dictionary();
+    replywords = model->reply(dummy);
+	if(DICTIONARY::dissimilar(words, replywords) == TRUE)
+		output = replywords->make_output();
 
     /*
      *		Loop for the specified waiting period, generating and evaluating
      *		replies
      */
-    max_surprise=(float)-1.0;
+    max_surprise=(MATH_TYPE)-1.0;
     count=0;
     basetime=time(NULL);
 /*     progress("Generating reply", 0, 1);  */
     do {
-	replywords=reply(model, keywords);
-	surprise=evaluate_reply(model, keywords, replywords);
+	replywords= model->reply(keywords);
+	surprise=model->evaluate_reply(keywords, replywords);
 	++count;
-	if((surprise>max_surprise)&&(dissimilar(words, replywords)==TRUE)) {
+	if((surprise>max_surprise)&&(DICTIONARY::dissimilar(words, replywords)==TRUE)) {
 	    max_surprise=surprise;
-	    output=make_output(replywords);
+	    output=replywords->make_output();
 	}
 /*  	progress(NULL, (time(NULL)-basetime),timeout); */
     } while((time(NULL)-basetime)<timeout);
-    progress(NULL, 1, 1);
+    intrinsics::progress(NULL, 1, 1);
 
     /*
      *		Return the best answer we generated
@@ -2250,13 +2395,16 @@ char *generate_reply(MODEL *model, DICTIONARY *words)
  *		Purpose:		Return TRUE or FALSE depending on whether the dictionaries
  *						are the same or not.
  */
-bool dissimilar(DICTIONARY *words1, DICTIONARY *words2)
+bool DICTIONARY::dissimilar(DICTIONARY *words1, DICTIONARY *words2)
 {
-    register int i;
+//  register
+	int i;
 
-    if(words1->size!=words2->size) return(TRUE);
+    if(words1->size!=words2->size)
+		  return(TRUE);
     for(i=0; i<words1->size; ++i)
-	if(wordcmp(words1->entry[i], words2->entry[i])!=0) return(TRUE);
+		if(STRING::wordcmp(words1->entry[i], words2->entry[i])!=0)
+		return(TRUE);
     return(FALSE);
 }
 
@@ -2269,16 +2417,21 @@ bool dissimilar(DICTIONARY *words1, DICTIONARY *words2)
  *						a keywords dictionary, which will be used when generating
  *						a reply.
  */
-DICTIONARY *make_keywords(MODEL *model, DICTIONARY *words)
+DICTIONARY *MODEL::make_keywords(DICTIONARY *words)
 {
+	MODEL *model = this;
     static DICTIONARY *keys=NULL;
-    register int i;
-    register int j;
+//  register
+	int i;
+//  register
+	int j;
     int c;
 
-    if(keys==NULL) keys=new_dictionary();
-    for(i=0; i<keys->size; ++i) free(keys->entry[i].word);
-    free_dictionary(keys);
+    if(keys==NULL)
+		keys=DICTIONARY::new_dictionary();
+    for(i=0; i<keys->size; ++i)
+		free(keys->entry[i].word);
+    DICTIONARY::free_dictionary(keys);
 
     for(i=0; i<words->size; ++i) {
 	/*
@@ -2289,22 +2442,24 @@ DICTIONARY *make_keywords(MODEL *model, DICTIONARY *words)
 	 */
 	c=0;
 	for(j=0; j<swp->size; ++j)
-	    if(wordcmp(swp->from[j], words->entry[i])==0) {
-		add_key(model, keys, swp->to[j]);
+	    if(STRING::wordcmp(swp->from[j], words->entry[i])==0) {
+		model->add_key(keys, swp->to[j]);
 		++c;
 	    }
-	if(c==0) add_key(model, keys, words->entry[i]);
+	if(c==0) 
+		model->add_key(keys, words->entry[i]);
     }
 
     if(keys->size>0) for(i=0; i<words->size; ++i) {
 
 	c=0;
 	for(j=0; j<swp->size; ++j)
-	    if(wordcmp(swp->from[j], words->entry[i])==0) {
-		add_aux(model, keys, swp->to[j]);
+	    if(STRING::wordcmp(swp->from[j], words->entry[i])==0) {
+		model->add_aux(keys, swp->to[j]);
 		++c;
 	    }
-	if(c==0) add_aux(model, keys, words->entry[i]);
+	if(c==0)
+		model->add_aux(keys, words->entry[i]);
     }
 
     return(keys);
@@ -2317,19 +2472,24 @@ DICTIONARY *make_keywords(MODEL *model, DICTIONARY *words)
  *
  *		Purpose:		Add a word to the keyword dictionary.
  */
-void add_key(MODEL *model, DICTIONARY *keys, STRING word)
+void MODEL::add_key(DICTIONARY *keys, STRING word)
 {
     int symbol;
+	MODEL *model = this;
 
-    symbol=find_word(model->dictionary, word);
-    if(symbol==0) return;
-    if(isalnum(word.word[0])==0) return;
-    symbol=find_word(ban, word);
-    if(symbol!=0) return;
-    symbol=find_word(aux, word);
-    if(symbol!=0) return;
+    symbol=model->dictionary->find_word(word);
+    if(symbol==0)
+		return;
+    if(isalnum(word.word[0])==0)
+		return;
+    symbol=ban->find_word(word);
+    if(symbol!=0)
+		return;
+    symbol=aux->find_word(word);
+    if(symbol!=0)
+		return;
 
-    add_word(keys, word);
+    keys->add_word(word);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2339,17 +2499,21 @@ void add_key(MODEL *model, DICTIONARY *keys, STRING word)
  *
  *		Purpose:		Add an auxilliary keyword to the keyword dictionary.
  */
-void add_aux(MODEL *model, DICTIONARY *keys, STRING word)
+void MODEL::add_aux(DICTIONARY *keys, STRING word)
 {
     int symbol;
+	MODEL *model = this; 
 
-    symbol=find_word(model->dictionary, word);
-    if(symbol==0) return;
-    if(isalnum(word.word[0])==0) return;
-    symbol=find_word(aux, word);
-    if(symbol==0) return;
+    symbol=model->dictionary->find_word(word);
+    if(symbol==0)
+		return;
+    if(isalnum(word.word[0])==0)
+		return;
+    symbol=aux->find_word(word);
+    if(symbol==0)
+		return;
 
-    add_word(keys, word);
+    keys->add_word(word);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2360,20 +2524,24 @@ void add_aux(MODEL *model, DICTIONARY *keys, STRING word)
  *		Purpose:		Generate a dictionary of reply words appropriate to the
  *						given dictionary of keywords.
  */
-DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
+DICTIONARY *MODEL::reply(DICTIONARY *keys)
 {
+	MODEL *model = this;
     static DICTIONARY *replies=NULL;
-    register int i;
+//  register
+	int i;
     int symbol;
     bool start=TRUE;
 
-    if(replies==NULL) replies=new_dictionary();
-    free_dictionary(replies);
+    if(replies==NULL)
+		replies=DICTIONARY::new_dictionary();
+    
+	DICTIONARY::free_dictionary(replies);
 
     /*
      *		Start off by making sure that the model's context is empty.
      */
-    initialize_context(model);
+    model->initialize_context();
     model->context[0]=model->forward;
     used_key=FALSE;
 
@@ -2384,9 +2552,13 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
 	/*
 	 *		Get a random symbol from the current context.
 	 */
-	if(start==TRUE) symbol=seed(model, keys);
-	else symbol=babble(model, keys, replies);
-	if((symbol==0)||(symbol==1)) break;
+	if(start==TRUE)
+		symbol=model->seed(keys);
+	else
+		symbol=model->babble(keys, replies);
+	
+	if((symbol==0)||(symbol==1))
+		break;
 	start=FALSE;
 
 	/*
@@ -2397,7 +2569,7 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
 	else
 	    replies->entry=(STRING *)realloc(replies->entry, (replies->size+1)*sizeof(STRING));
 	if(replies->entry==NULL) {
-	    error("reply", "Unable to reallocate dictionary");
+	    intrinsics::error("reply", "Unable to reallocate dictionary");
 	    return(NULL);
 	}
 
@@ -2410,13 +2582,13 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
 	/*
 	 *		Extend the current context of the model with the current symbol.
 	 */
-	update_context(model, symbol);
+	model->update_context(symbol);
     }
 
     /*
      *		Start off by making sure that the model's context is empty.
      */
-    initialize_context(model);
+    model->initialize_context();
     model->context[0]=model->backward;
 
     /*
@@ -2425,8 +2597,8 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
      *		beginning of the string.
      */
     if(replies->size>0) for(i=MIN(replies->size-1, model->order); i>=0; --i) {
-	symbol=find_word(model->dictionary, replies->entry[i]);
-	update_context(model, symbol);
+	symbol=model->dictionary->find_word(replies->entry[i]);
+	model->update_context(symbol);
     }
 
     /*
@@ -2436,7 +2608,7 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
 	/*
 	 *		Get a random symbol from the current context.
 	 */
-	symbol=babble(model, keys, replies);
+	symbol=model->babble(keys, replies);
 	if((symbol==0)||(symbol==1)) break;
 
 	/*
@@ -2447,7 +2619,7 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
 	else
 	    replies->entry=(STRING *)realloc(replies->entry, (replies->size+1)*sizeof(STRING));
 	if(replies->entry==NULL) {
-	    error("reply", "Unable to reallocate dictionary");
+	    intrinsics::error("reply", "Unable to reallocate dictionary");
 	    return(NULL);
 	}
 
@@ -2466,7 +2638,7 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
 	/*
 	 *		Extend the current context of the model with the current symbol.
 	 */
-	update_context(model, symbol);
+	model->update_context(symbol);
     }
 
     return(replies);
@@ -2480,68 +2652,78 @@ DICTIONARY *reply(MODEL *model, DICTIONARY *keys)
  *		Purpose:		Measure the average surprise of keywords relative to the
  *						language model.
  */
-float evaluate_reply(MODEL *model, DICTIONARY *keys, DICTIONARY *words)
+MATH_TYPE MODEL::evaluate_reply(DICTIONARY *keys, DICTIONARY *words)
 {
-    register int i;
-    register int j;
+//  register
+	int i;
+//  register
+	int j;
+	MODEL *model = this;
     int symbol;
-    float probability;
+    MATH_TYPE probability;
     int count;
-    float entropy=(float)0.0;
+    MATH_TYPE entropy=(float)0.0;
     TREE *node;
     int num=0;
 
-    if(words->size<=0) return((float)0.0);
-    initialize_context(model);
+    if(words->size<=0)
+		return((MATH_TYPE)0.0);
+
+	model->initialize_context();
     model->context[0]=model->forward;
     for(i=0; i<words->size; ++i) {
-	symbol=find_word(model->dictionary, words->entry[i]);
+	symbol=model->dictionary->find_word(words->entry[i]);
 
-	if(find_word(keys, words->entry[i])!=0) {
-	    probability=(float)0.0;
+	if(keys->find_word(words->entry[i])!=0) {
+	    probability=(MATH_TYPE)0.0;
 	    count=0;
 	    ++num;
-	    for(j=0; j<model->order; ++j) if(model->context[j]!=NULL) {
+	    for(j=0; j<model->order; ++j)
+			if(model->context[j]!=NULL) {
 
-		node=find_symbol(model->context[j], symbol);
-		probability+=(float)(node->count)/
-		    (float)(model->context[j]->usage);
+		node=model->context[j]->find_symbol(symbol);
+		probability+=(MATH_TYPE)(node->count)/
+		    (MATH_TYPE)(model->context[j]->usage);
 		++count;
 
 	    }
-
-	    if(count>0.0) entropy-=(float)log(probability/(float)count);
+	    if(count>0.0)
+			entropy-=(float)log((float)probability/(float)count);
 	}
 
-	update_context(model, symbol);
+	model->update_context(symbol);
     }
 
-    initialize_context(model);
+    model->initialize_context();
     model->context[0]=model->backward;
     for(i=words->size-1; i>=0; --i) {
-	symbol=find_word(model->dictionary, words->entry[i]);
+	symbol=model->dictionary->find_word(words->entry[i]);
 
-	if(find_word(keys, words->entry[i])!=0) {
-	    probability=(float)0.0;
+	if(keys->find_word(words->entry[i])!=0) {
+	    probability=(MATH_TYPE)0.0;
 	    count=0;
 	    ++num;
-	    for(j=0; j<model->order; ++j) if(model->context[j]!=NULL) {
+	    for(j=0; j<model->order; ++j)
+			if(model->context[j]!=NULL) {
 
-		node=find_symbol(model->context[j], symbol);
+		node=model->context[j]->find_symbol(symbol);
 		probability+=(float)(node->count)/
 		    (float)(model->context[j]->usage);
 		++count;
 
 	    }
 
-	    if(count>0.0) entropy-=(float)log(probability/(float)count);
+	    if(count>0.0)
+			entropy-=(float)log((float)probability/(float)count);
 	}
 
-	update_context(model, symbol);
+	model->update_context(symbol);
     }
 
-    if(num>=8) entropy/=(float)sqrt(float(num-1));
-    if(num>=16) entropy/=(float)num;
+    if(num>=8)
+		entropy=((float)entropy)/sqrt(float(num-1));
+    if(num>=16)
+		entropy=((float)entropy)/(float)num;
 
     return(entropy);
 }
@@ -2553,38 +2735,43 @@ float evaluate_reply(MODEL *model, DICTIONARY *keys, DICTIONARY *words)
  *
  *		Purpose:		Generate a string from the dictionary of reply words.
  */
-char *make_output(DICTIONARY *words)
+char *DICTIONARY::make_output()
 {
+	DICTIONARY *words = this;
     static char *output=NULL;
-    register int i;
-    register int j;
+//  register
+	int i;
+//  register
+	int j;
     int length;
     static char *output_none=NULL;
 
-    if(output_none==NULL) output_none=(char*)malloc(40);
+    if(output_none==NULL)
+		output_none=(char*)malloc(40);
 
     if(output==NULL) {
 	output=(char *)malloc(sizeof(char));
 	if(output==NULL) {
-	    error("make_output", "Unable to allocate output");
+	    intrinsics::error("make_output", "Unable to allocate output");
 	    return(output_none);
 	}
     }
 
     if(words->size==0) {
 	if(output_none!=NULL)
-	    strcpy(output_none, "I am utterly speechless!");
+ 	    strcpy_s(output_none,39, "I am utterly speechless!");
 	return(output_none);
     }
 
     length=1;
-    for(i=0; i<words->size; ++i) length+=words->entry[i].length;
+    for(i=0; i<words->size; ++i)
+		length+=words->entry[i].length;
 
     output=(char *)realloc(output, sizeof(char)*length);
     if(output==NULL) {
-	error("make_output", "Unable to reallocate output.");
+		intrinsics::error("make_output", "Unable to reallocate output.");
 	if(output_none!=NULL)
-	    strcpy(output_none, "I forgot what I was going to say!");
+	    strcpy_s(output_none,39,"I forgot what I was going to say!");
 	return(output_none);
     }
 
@@ -2609,10 +2796,12 @@ char *make_output(DICTIONARY *words)
  *						on probabilities, favouring keywords.  In all cases,
  *						use the longest available context to choose the symbol.
  */
-int babble(MODEL *model, DICTIONARY *keys, DICTIONARY *words)
+int MODEL::babble(DICTIONARY *keys, DICTIONARY *words)
 {
+	MODEL *model =  this;
     TREE *node;
-    register int i;
+//  register
+	int i;
     int count;
     int symbol;
 
@@ -2628,8 +2817,8 @@ int babble(MODEL *model, DICTIONARY *keys, DICTIONARY *words)
     /*
      *		Choose a symbol at random from this context.
      */
-    i=rnd(node->branch);
-    count=rnd(node->usage);
+    i=intrinsics::rnd(node->branch);
+    count=intrinsics::rnd(node->usage);
     while(count>=0) {
 	/*
 	 *		If the symbol occurs as a keyword, then use it.  Only use an
@@ -2638,10 +2827,10 @@ int babble(MODEL *model, DICTIONARY *keys, DICTIONARY *words)
 	symbol=node->tree[i]->symbol;
 
 	if(
-	    (find_word(keys, model->dictionary->entry[symbol])!=0)&&
+	    (keys->find_word(model->dictionary->entry[symbol])!=0)&&
 	    ((used_key==TRUE)||
-	     (find_word(aux, model->dictionary->entry[symbol])==0))&&
-	    (word_exists(words, model->dictionary->entry[symbol])==FALSE)
+	     (aux->find_word(model->dictionary->entry[symbol])==0))&&
+	    (words->word_exists(model->dictionary->entry[symbol])==FALSE)
 	    ) {
 	    used_key=TRUE;
 	    break;
@@ -2660,12 +2849,14 @@ int babble(MODEL *model, DICTIONARY *keys, DICTIONARY *words)
  *
  *		Purpose:		A silly brute-force searcher for the reply string.
  */
-bool word_exists(DICTIONARY *dictionary, STRING word)
+bool DICTIONARY::word_exists(STRING word)
 {
-    register int i;
+//  register
+	int i;
+	DICTIONARY *dictionary = this;
 
     for(i=0; i<dictionary->size; ++i)
-	if(wordcmp(dictionary->entry[i], word)==0)
+	if(STRING::wordcmp(dictionary->entry[i], word)==0)
 	    return(TRUE);
     return(FALSE);
 }
@@ -2678,32 +2869,34 @@ bool word_exists(DICTIONARY *dictionary, STRING word)
  *		Purpose:		Seed the reply by guaranteeing that it contains a
  *						keyword, if one exists.
  */
-int seed(MODEL *model, DICTIONARY *keys)
+int MODEL::seed(DICTIONARY *keys)
 {
-    register int i;
+//  register
+	int i;
     int symbol;
     int stop;
-
+	MODEL *model = this;
     /*
      *		Fix, thanks to Mark Tarrabain
      */
     if(model->context[0]->branch==0) symbol=0;
-    else symbol=model->context[0]->tree[rnd(model->context[0]->branch)]->symbol;
+    else symbol=model->context[0]->tree[intrinsics::rnd(model->context[0]->branch)]->symbol;
 
     if(keys->size>0) {
-	i=rnd(keys->size);
+	i=intrinsics::rnd(keys->size);
 	stop=i;
 	while(TRUE) {
 	    if(
-		(find_word(model->dictionary, keys->entry[i])!=0)&&
-		(find_word(aux, keys->entry[i])==0)
+		(model->dictionary->find_word(keys->entry[i])!=0)&&
+		(aux->find_word(keys->entry[i])==0)
 		) {
-		symbol=find_word(model->dictionary, keys->entry[i]);
+		symbol=model->dictionary->find_word(keys->entry[i]);
 		return(symbol);
 	    }
 	    ++i;
 	    if(i==keys->size) i=0;
-	    if(i==stop) return(symbol);
+	    if(i==stop)
+			return(symbol);
 	}
     }
 
@@ -2717,13 +2910,13 @@ int seed(MODEL *model, DICTIONARY *keys)
  *
  *		Purpose:		Allocate a new swap structure.
  */
-SWAP *new_swap(void)
+SWAP *SWAP::new_swap(void)
 {
     SWAP *list;
 
     list=(SWAP *)malloc(sizeof(SWAP));
     if(list==NULL) {
-	error("new_swap", "Unable to allocate swap");
+	intrinsics::error("new_swap", "Unable to allocate swap");
 	return(NULL);
     }
     list->size=0;
@@ -2740,14 +2933,15 @@ SWAP *new_swap(void)
  *
  *		Purpose:		Add a new entry to the swap structure.
  */
-void add_swap(SWAP *list, char *s, char *d)
+void SWAP::add_swap(char *s, char *d)
 {
+	SWAP *list = this;
     list->size+=1;
 
     if(list->from==NULL) {
 	list->from=(STRING *)malloc(sizeof(STRING));
 	if(list->from==NULL) {
-	    error("add_swap", "Unable to allocate list->from");
+	    intrinsics::error("add_swap", "Unable to allocate list->from");
 	    return;
 	}
     }
@@ -2755,27 +2949,27 @@ void add_swap(SWAP *list, char *s, char *d)
     if(list->to==NULL) {
 	list->to=(STRING *)malloc(sizeof(STRING));
 	if(list->to==NULL) {
-	    error("add_swap", "Unable to allocate list->to");
+	    intrinsics::error("add_swap", "Unable to allocate list->to");
 	    return;
 	}
     }
 
     list->from=(STRING *)realloc(list->from, sizeof(STRING)*(list->size));
     if(list->from==NULL) {
-	error("add_swap", "Unable to reallocate from");
+	intrinsics::error("add_swap", "Unable to reallocate from");
 	return;
     }
 
     list->to=(STRING *)realloc(list->to, sizeof(STRING)*(list->size));
     if(list->to==NULL) {
-	error("add_swap", "Unable to reallocate to");
+	intrinsics::error("add_swap", "Unable to reallocate to");
 	return;
     }
 
     list->from[list->size-1].length=strlen(s);
-    list->from[list->size-1].word=strdup(s);
+    list->from[list->size-1].word=_strdup(s);
     list->to[list->size-1].length=strlen(d);
-    list->to[list->size-1].word=strdup(d);
+    list->to[list->size-1].word=_strdup(d);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2785,29 +2979,34 @@ void add_swap(SWAP *list, char *s, char *d)
  *
  *		Purpose:		Read a swap structure from a file.
  */
-SWAP *initialize_swap(char *filename)
+SWAP *SWAP::initialize_swap(char *filename)
 {
     SWAP *list;
     FILE *file=NULL;
     char buffer[1024];
     char *from;
     char *to;
+	char *next_token;
 
-    list=new_swap();
+	list=SWAP::new_swap();
 
-    if(filename==NULL) return(list);
+    if(filename==NULL)
+		return(list);
 
-    file=fopen(filename, "r");
-    if(file==NULL) return(list);
+	errno_t err = fopen_s (&file,filename, "r");
+    if(file==NULL)
+		return(list);
 
     while(!feof(file)) {
 
-	if(fgets(buffer, 1024, file)==NULL) break;
-	if(buffer[0]=='#') continue;
-	from=strtok(buffer, "\t ");
-	to=strtok(NULL, "\t \n#");
+	if(fgets(buffer, 1024, file)==NULL)
+		break;
+	if(buffer[0]=='#')
+		continue;
+	from=strtok_s (buffer, "\t ",&next_token);
+	to=strtok_s (NULL, "\t \n#",&next_token);
 
-	add_swap(list, from, to);
+	list->add_swap(from, to);
     }
 
     fclose(file);
@@ -2816,15 +3015,17 @@ SWAP *initialize_swap(char *filename)
 
 /*---------------------------------------------------------------------------*/
 
-void free_swap(SWAP *swap)
+void SWAP::free_swap(SWAP *swap)
 {
-    register int i;
+//  register
+	int i;
 
-    if(swap==NULL) return;
+    if(swap==NULL)
+		return;
 
     for(i=0; i<swap->size; ++i) {
-	free_word(swap->from[i]);
-	free_word(swap->to[i]);
+	STRING::free_word(swap->from[i]);
+	STRING::free_word(swap->to[i]);
     }
     free(swap->from);
     free(swap->to);
@@ -2838,31 +3039,36 @@ void free_swap(SWAP *swap)
  *
  *		Purpose:		Read a dictionary from a file.
  */
-DICTIONARY *initialize_list(char *filename)
+DICTIONARY *DICTIONARY::initialize_list(char *filename)
 {
     DICTIONARY *list;
     FILE *file=NULL;
     STRING word;
     char *string;
+	char *next_token;
     char buffer[1024];
 
-    list=new_dictionary();
+    list=DICTIONARY::new_dictionary();
 
-    if(filename==NULL) return(list);
+    if(filename==NULL)
+		return(list);
 
-    file=fopen(filename, "r");
-    if(file==NULL) return(list);
+	errno_t err = fopen_s (&file,filename, "r");
+    if(file==NULL)
+		return(list);
 
     while(!feof(file)) {
 
-	if(fgets(buffer, 1024, file)==NULL) break;
-	if(buffer[0]=='#') continue;
-	string=strtok(buffer, "\t \n#");
+	if(fgets(buffer, 1024, file)==NULL)
+		break;
+	if(buffer[0]=='#')
+		continue;
+	string = strtok_s(buffer, "\t \n#",&next_token);
 
 	if((string!=NULL)&&(strlen(string)>0)) {
 	    word.length=strlen(string);
-	    word.word=strdup(buffer);
-	    add_word(list, word);
+	    word.word=_strdup(buffer);
+	    list->add_word(word);
 	}
     }
 
@@ -2870,7 +3076,7 @@ DICTIONARY *initialize_list(char *filename)
     return(list);
 }
 
-void usleep (int period)
+void intrinsics::usleep (int period)
 {
 	Sleep (period);
 }
@@ -2883,9 +3089,10 @@ void usleep (int period)
  *
  *		Purpose:		Display the string to stdout as if it was typed by a human.
  */
-void delay(char *string)
+void intrinsics::delay(char *string)
 {
-    register int i;
+//  register
+	int i;
 
     /*
      *		Don't simulate typing if the feature is turned off
@@ -2910,7 +3117,7 @@ void delay(char *string)
  *
  *		Purpose:		Display a character to stdout as if it was typed by a human.
  */
-void typein(char c)
+void intrinsics::typein(char c)
 {
     /*
      *		Standard keyboard delay
@@ -2933,9 +3140,10 @@ void typein(char c)
  *
  *		Purpose:		Log the occurrence of a signal, but ignore it.
  */
-void ignore(int sig)
+void intrinsics::ignore(int sig)
 {
-    if(sig!=0) warn("ignore", "MegaHAL received signal %d", sig);
+    if(sig!=0)
+		intrinsics::warn("ignore", "MegaHAL received signal %d", sig);
 
 #if !defined(DOS)
     //    signal(SIGINT, saveandexit);
@@ -2953,7 +3161,7 @@ void ignore(int sig)
  *
  *		Purpose:		Log the occurrence of a signal, and exit.
  */
-void die(int sig)
+void intrinsics::die(int sig)
 {
     error("die", "MegaHAL received signal %d", sig);
     exithal();
@@ -2966,7 +3174,7 @@ void die(int sig)
  *
  *		Purpose:		Return a random integer between 0 and range-1.
  */
-int rnd(int range)
+int intrinsics::rnd(int range)
 {
     static bool flag=FALSE;
 
@@ -3000,7 +3208,7 @@ int rnd(int range)
  *						example, believe it or not!
  */
 #if defined(DOS) || defined(__mac_os)
-void usleep(int period)
+void intrinsics::usleep(int period)
 {
     clock_t goal;
 
@@ -3018,7 +3226,7 @@ void usleep(int period)
  *		Purpose:		Provide the strdup() function for Macintosh.
  */
 #ifdef __mac_os
-char *strdup(const char *str)
+char *intrinsics::strdup(const char *str)
 {
     char *rval=(char *)malloc(strlen(str)+1);
 
@@ -3036,7 +3244,7 @@ char *strdup(const char *str)
  *		Purpose:		Initialize speech output.
  */
 #ifdef __mac_os
-bool initialize_speech(void)
+bool intrinsics::initialize_speech(void)
 {
     bool speechExists = false;
     long response;
@@ -3060,7 +3268,7 @@ bool initialize_speech(void)
  *
  *		Purpose:		change voice of speech output.
  */
-void changevoice(DICTIONARY* words, int position)
+void DICTIONARY::changevoice(int position)
 {
 #ifdef __mac_os
     register int i, index;
@@ -3128,7 +3336,7 @@ void changevoice(DICTIONARY* words, int position)
  *
  *		Purpose:		Display the names of voices for speech output.
  */
-void listvoices(void)
+void intrinsics::listvoices(void)
 {
 #ifdef __mac_os
     VoiceSpec voiceSpec;
@@ -3164,7 +3372,7 @@ void listvoices(void)
 /*
  *		Function:	Speak
  */
-void speak(char *output)
+void intrinsics::speak(char *output)
 {
     if(speech==FALSE) return;
 #ifdef __mac_os
@@ -3189,7 +3397,7 @@ void speak(char *output)
  *
  *		Purpose:		Display a progress indicator as a percentage.
  */
-bool progress(char *message, int done, int total)
+bool intrinsics::progress(char *message, int done, int total)
 {
     static int last=0;
     static bool first=FALSE;
@@ -3234,7 +3442,7 @@ bool progress(char *message, int done, int total)
 
 /*---------------------------------------------------------------------------*/
 
-void help(void)
+void intrinsics::help(void)
 {
     int j;
 
@@ -3245,35 +3453,39 @@ void help(void)
 
 /*---------------------------------------------------------------------------*/
 
-void load_personality(MODEL **model)
+void MODEL::load_personality(MODEL **model)
 {
+	int sz;
     FILE *file;
     static char *filename=NULL;
 
-    if(filename==NULL) filename=(char *)malloc(sizeof(char)*1);
+    if(filename==NULL)
+		filename=(char *)malloc(sizeof(char)*1);
 
     /*
      *		Allocate memory for the filename
      */
-    filename=(char *)realloc(filename,
-			     sizeof(char)*(strlen(directory)+strlen(SEP)+12));
-    if(filename==NULL) error("load_personality","Unable to allocate filename");
+	sz = sizeof(char)*(strlen(directory)+strlen(SEP)+12);
+    filename=(char *)realloc(filename,sz);
+    if(filename==NULL)
+		intrinsics::error("load_personality","Unable to allocate filename");
 
     /*
      *		Check to see if the brain exists
      */
 
     if(strcmp(directory, DEFAULT)!=0) {
-	sprintf(filename, "%s%smegahal.brn", directory, SEP);
-	file=fopen(filename, "r");
+	sprintf_s(filename, sz,"%s%smegahal.brn", directory, SEP);
+	errno_t err = fopen_s (&file,filename, "r");
+
 	if(file==NULL) {
-	    sprintf(filename, "%s%smegahal.trn", directory, SEP);
-	    file=fopen(filename, "r");
+	    sprintf_s(filename, sz,"%s%smegahal.trn", directory, SEP);
+	    errno_t err = fopen_s(&file,filename, "r");
 	    if(file==NULL) {
 		fprintf(stdout, "Unable to change MegaHAL personality to \"%s\".\n"
 			"Reverting to MegaHAL personality \"%s\".\n", directory, last);
 		free(directory);
-		directory=strdup(last);
+		directory=_strdup(last);
 		return;
 	    }
 	}
@@ -3284,70 +3496,74 @@ void load_personality(MODEL **model)
     /*
      *		Free the current personality
      */
-    free_model(*model);
-    free_words(ban);
-    free_dictionary(ban);
-    free_words(aux);
-    free_dictionary(aux);
-    free_words(grt);
-    free_dictionary(grt);
-    free_swap(swp);
+	MODEL::free_model(*model);
+    ban->free_words();
+    DICTIONARY::free_dictionary(ban);
+    aux->free_words();
+    DICTIONARY::free_dictionary(aux);
+    grt->free_words();
+    DICTIONARY::free_dictionary(grt);
+	SWAP::free_swap(swp);
 
     /*
      *		Create a language model.
      */
-    *model=new_model(order);
+	*model=MODEL::new_model(::order);
 
     /*
      *		Train the model on a text if one exists
      */
 
-    sprintf(filename, "%s%smegahal.brn", directory, SEP);
-    if(load_model(filename, *model)==FALSE) {
-	sprintf(filename, "%s%smegahal.trn", directory, SEP);
-	train(*model, filename);
+    sprintf_s(filename, sz,"%s%smegahal.brn", directory, SEP);
+	bool status;
+	status = (*model)->load_model (filename);
+    if(status==FALSE) {
+	sprintf_s(filename, sz, "%s%smegahal.trn", directory, SEP);
+	(*model)->train(filename);
     }
 
     /*
      *		Read a dictionary containing banned keywords, auxiliary keywords,
      *		greeting keywords and swap keywords
      */
-    sprintf(filename, "%s%smegahal.ban", directory, SEP);
-    ban=initialize_list(filename);
-    sprintf(filename, "%s%smegahal.aux", directory, SEP);
-    aux=initialize_list(filename);
-    sprintf(filename, "%s%smegahal.grt", directory, SEP);
-    grt=initialize_list(filename);
-    sprintf(filename, "%s%smegahal.swp", directory, SEP);
-    swp=initialize_swap(filename);
+    sprintf_s(filename, sz,"%s%smegahal.ban", directory, SEP);
+	ban = DICTIONARY::initialize_list(filename);
+    sprintf_s(filename, sz,"%s%smegahal.aux", directory, SEP);
+    aux = DICTIONARY::initialize_list(filename);
+    sprintf_s(filename, sz,"%s%smegahal.grt", directory, SEP);
+    grt = DICTIONARY::initialize_list(filename);
+    sprintf_s(filename, sz,"%s%smegahal.swp", directory, SEP);
+	swp = SWAP::initialize_swap(filename);
 }
 
 /*---------------------------------------------------------------------------*/
 
-void change_personality(DICTIONARY *command, int position, MODEL **model)
+void MODEL::change_personality(DICTIONARY *command, int position, MODEL **model)
 {
-
-    if(directory == NULL) {
-	directory = (char *)malloc(sizeof(char)*(strlen(DEFAULT)+1));
+	int sz;
+    if(directory == NULL)
+	{
+	sz = strlen(DEFAULT)+1;
+	directory = (char *)malloc(sizeof(char)*(sz));
 	if(directory == NULL) {
-	    error("change_personality", "Unable to allocate directory");
+	    intrinsics::error("change_personality", "Unable to allocate directory");
 	} else {
-	    strcpy(directory, DEFAULT);
+	    strcpy_s (directory,sz,DEFAULT);
 	}
     }
 
     if(last == NULL) {
-	last = strdup(directory);
+	last = _strdup(directory);
     }
 
     if((command == NULL)||((position+2)>=command->size)) {
 	/* no dir set, so we leave it to whatever was set above */
     } else {
-        directory=(char *)realloc(directory,
-                                  sizeof(char)*(command->entry[position+2].length+1));
+		sz = sizeof(char)*(command->entry[position+2].length+1);
+        directory=(char *)realloc(directory,sz);
         if(directory == NULL)
-            error("change_personality", "Unable to allocate directory");
-        strncpy(directory, command->entry[position+2].word,
+            intrinsics::error("change_personality", "Unable to allocate directory");
+        strncpy_s (directory, sz, command->entry[position+2].word,
                 command->entry[position+2].length);
         directory[command->entry[position+2].length]='\0';
     }
@@ -3357,19 +3573,23 @@ void change_personality(DICTIONARY *command, int position, MODEL **model)
 
 /*---------------------------------------------------------------------------*/
 
-void free_words(DICTIONARY *words)
+void DICTIONARY::free_words()
 {
-    register int i;
+//  register
+	int i;
+	DICTIONARY *words = this;
 
-    if(words == NULL) return;
+    if(words == NULL)
+		return;
 
     if(words->entry != NULL)
-	for(i=0; i<words->size; ++i) free_word(words->entry[i]);
+	for(i=0; i<words->size; ++i)
+		STRING::free_word(words->entry[i]);
 }
 
 /*---------------------------------------------------------------------------*/
 
-void free_word(STRING word)
+void STRING::free_word(STRING word)
 {
     free(word.word);
 }

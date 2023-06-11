@@ -95,28 +95,39 @@ extern void srand48(long);
 
 /* public functions  */
 
-
-
+#if 0
 void megahal_setnoprompt ();
 void megahal_setnowrap ();
 void megahal_setnobanner ();
-
 void megahal_seterrorfile(char *filename);
 void megahal_setstatusfile(char *filename);
-
 void megahal_initialize();
-
 char *megahal_initial_greeting();
-
 int megahal_command(char *input);
-
 char *megahal_do_reply(char *input, int log);
-
 void megahal_output(char *output);
 char *megahal_input(char *prompt);
-
 void megahal_cleanup();
 
 /*===========================================================================*/
+
+#endif
+
+class megahal
+{
+public:
+	static void setnoprompt(void);
+	static void setnowrap (void);
+	static void setnobanner (void);
+	static void seterrorfile(char *filename);
+	static void setstatusfile(char *filename);
+	static void initialize(void);
+	static char *do_reply(char *input, int log);
+	static char *initial_greeting(void);
+	static void output(char *output);
+	static char *input(char *input);
+	static int command(char *command);
+	static void cleanup(void);
+};
 
 #endif /* MEGAHAL_H  */
